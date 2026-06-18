@@ -166,13 +166,38 @@ def narrative_numbers(df, con):
     l = df[df["month"].isin(months[-12:])].groupby("channel")["ceo"].sum()
     pr = df[df["month"].isin(months[-24:-12])].groupby("channel")["ceo"].sum()
     growth = ((l - pr) / pr * 100)
+    delta_eur = (l - pr)
     ret = con.execute("""
         select channel, sum(total_unidades_devueltas)*100.0/sum(total_unidades_vendidas) tasa
         from mart_channel_sales_monthly group by 1
     """).fetchdf().set_index("channel")["tasa"]
-    n = {c: dict(share=share[c], growth=growth[c], ret=ret[c]) for c in CHANNELS}
+    n = {c: dict(
+        share=share[c], growth=growth[c], ret=ret[c],
+        total_eur=tot[c], last12_eur=l[c], delta_eur=delta_eur[c],
+    ) for c in CHANNELS}
     n["_gmin"], n["_gmax"] = growth.min(), growth.max()
+    n["_total_eur"] = tot.sum()
+    n["_last12_eur"] = l.sum()
+    n["_prev12_eur"] = pr.sum()
+    n["_delta_eur"] = l.sum() - pr.sum()
+    n["_growth_total"] = (l.sum() - pr.sum()) / pr.sum() * 100
+    # Cuánto del nuevo crecimiento viene de Online vs del resto
+    n["_online_share_of_growth"] = delta_eur["online"] / (l.sum() - pr.sum()) * 100
+    n["_rest_delta_eur"] = (l.sum() - pr.sum()) - delta_eur["online"]
+    n["_rest_total_eur"] = tot.sum() - tot["online"]
     return n
+
+
+def fmt_eur(v, short=False):
+    """Formatea euros: 9.1M€ / 750k€ para resúmenes; 9.119.198€ para texto exacto."""
+    if short:
+        if abs(v) >= 1_000_000:
+            return f"{v/1_000_000:.1f}M€".replace(".", ",")
+        if abs(v) >= 1_000:
+            return f"{v/1_000:.0f}k€"
+        return f"{v:.0f}€"
+    s = f"{v:,.0f}".replace(",", ".")
+    return f"{s}€"
 
 
 # --------------------------------------------------------------------------- #
@@ -202,67 +227,53 @@ def section_q1(con):
 
     kpis = f"""
     <div class="kpi-grid">
-      {kpi("Participación Online", f"{n['online']['share']:.0f}%", "de la venta neta total")}
-      {kpi("Crecimiento interanual", f"+{n['_gmin']:.0f}–{n['_gmax']:.0f}%", "los cuatro canales, en paralelo", "pos")}
-      {kpi("Rotación de mix", "Estable", "sin cambios de reparto (&lt;0,3 pp)")}
+      {kpi("Venta neta (24 meses)", fmt_eur(n['_total_eur'], short=True), f"{fmt_eur(n['_last12_eur'], short=True)} en los últimos 12 meses")}
+      {kpi("Crecimiento interanual", f"+{n['_growth_total']:.0f}%", f"+{fmt_eur(n['_delta_eur'], short=True)} vs el año anterior", "pos")}
+      {kpi("Online", f"{fmt_eur(n['online']['total_eur'], short=True)}", f"{n['online']['share']:.0f}% del total — más que los otros tres canales juntos")}
       {kpi("Devoluciones", f"{n['online']['ret']:.0f}% vs {n['wholesale']['ret']:.0f}%", "Online frente a Wholesale")}
     </div>"""
 
     prose_intro = f"""
-    <p>El negocio se apoya sobre todo en un canal: <strong>Online concentra el
-    {n['online']['share']:.0f}%</strong> de la venta neta. Wholesale y Retail
-    aportan algo menos de un quinto cada uno ({n['wholesale']['share']:.0f}% y
-    {n['retail']['share']:.0f}%), y Marketplace queda como canal menor
-    ({n['marketplace']['share']:.0f}%).</p>
-
-    <p>Todas las cifras de esta sección son <strong>venta neta</strong>: ya
-    descuentan impuestos y devoluciones. Comparar la venta bruta entre canales
-    engaña, porque Wholesale no lleva impuestos y Online absorbe la mayoría de las
-    devoluciones — mezclar esas dos cosas haría parecer a unos canales mejores de
-    lo que son.</p>
+    <p>En 24 meses ALOHAS ha facturado <strong>{fmt_eur(n['_total_eur'], short=True)}</strong>
+    de venta neta. <strong>Online</strong> lidera con
+    <strong>{fmt_eur(n['online']['total_eur'], short=True)}</strong>
+    ({n['online']['share']:.0f}%); <strong>Wholesale</strong>
+    ({fmt_eur(n['wholesale']['total_eur'], short=True)}) y <strong>Retail</strong>
+    ({fmt_eur(n['retail']['total_eur'], short=True)}) rondan un quinto cada uno;
+    <strong>Marketplace</strong> queda residual ({fmt_eur(n['marketplace']['total_eur'], short=True)},
+    {n['marketplace']['share']:.0f}%). Toda la sección es venta neta — sin impuestos
+    ni devoluciones.</p>
     """
 
-    prose_trend = """
-    <p>La tendencia confirma un negocio en crecimiento, con el pico estacional de
-    noviembre–diciembre repitiéndose los dos años. Las proporciones entre canales
-    se mantienen estables a lo largo del tiempo: no se ve un canal comiéndole
-    terreno a otro, sino los cuatro creciendo en paralelo.</p>
+    prose_trend = f"""
+    <p>Crecimiento sostenido con pico Nov–Dic. En 12 meses:
+    <strong>{fmt_eur(n['_prev12_eur'], short=True)} → {fmt_eur(n['_last12_eur'], short=True)}</strong>
+    (<strong>+{fmt_eur(n['_delta_eur'], short=True)}, +{n['_growth_total']:.0f}%</strong>) —
+    equivale a sumar un Marketplace entero en un año.</p>
     """
 
-    prose_mix = """
-    <p>Visto como participación del total acumulado de los dos años, Online supera
-    por sí solo la mitad de la venta neta y los demás canales se reparten el resto.
-    Y como vimos en la tendencia, este reparto es estable en el tiempo: el
-    crecimiento no depende de un cambio de mix arriesgado, viene de que <em>todo</em>
-    el negocio crece a la vez.</p>
+    prose_mix = f"""
+    <p>Online ({fmt_eur(n['online']['total_eur'], short=True)}) pesa más que los
+    otros tres canales juntos ({fmt_eur(n['_rest_total_eur'], short=True)}).
+    Reparto estable: el crecimiento no viene de un cambio de mix.</p>
     """
 
-    prose_growth = f"""
-    <p>Y eso es justo lo que muestra el crecimiento interanual: los cuatro canales
-    crecen en una banda estrecha, entre <strong>+{n['_gmin']:.0f}% y
-    +{n['_gmax']:.0f}%</strong>. Online es marginalmente el que más acelera
-    (+{n['online']['growth']:.1f}%), pero la diferencia con el resto es pequeña.
-    La lectura honesta no es "tal canal se está disparando", sino "<strong>el motor
-    de crecimiento es ancho y sano</strong>", sin un único punto de dependencia ni
-    una fuga evidente.</p>
+    prose_growth = """
+    <p>Los cuatro canales crecen en una banda estrecha. Online lidera marginalmente,
+    pero la diferencia es pequeña: <strong>motor de crecimiento ancho</strong>, sin
+    un único punto de dependencia.</p>
     """
 
     prose_lens = """
     <div class="note">
-      <p><strong>Dos formas de leer estas cifras — elige arriba la perspectiva.</strong>
-      La única diferencia entre ambas es <em>cuándo</em> se cuenta una devolución, y
-      eso cambia a qué mes se le resta:</p>
+      <p><strong>Dos lecturas, según cuándo se cuenta una devolución:</strong></p>
       <ul>
-        <li><strong>CEO (visión financiera):</strong> la devolución se registra el día
-        en que ocurre. Un mes ya cerrado no se vuelve a tocar — es la lectura correcta
-        para resultados financieros.</li>
-        <li><strong>Head of Wholesale (visión por cohorte):</strong> la devolución se
-        descuenta del mes en que se hizo la venta original. Sirve para responder "¿de
-        qué meses salieron los productos que luego se devolvieron?", útil para evaluar
-        la calidad de cada campaña de ventas.</li>
+        <li><strong>CEO (financiera):</strong> la devolución se registra el día que
+        ocurre. Un mes cerrado no se vuelve a tocar.</li>
+        <li><strong>Head of Wholesale (cohorte):</strong> la devolución se descuenta
+        del mes de la venta original. Mide la calidad de cada campaña.</li>
       </ul>
-      <p>En Wholesale las dos vistas son casi idénticas (apenas hay devoluciones);
-      en Online es donde más se separan.</p>
+      <p>En Wholesale las dos vistas coinciden; en Online es donde más se separan.</p>
     </div>
     """
 
@@ -314,6 +325,252 @@ def section_q1(con):
     """
 
 
+# --------------------------------------------------------------------------- #
+# Sección 02 — Devoluciones tardías
+# --------------------------------------------------------------------------- #
+def load_returns_data(con):
+    df = con.execute("""
+        select month,
+               sum(venta_neta_pre_devolucion_eur)        as pre_devolucion,
+               sum(net_sales_asof_sale_eur)              as asof_sale,
+               sum(net_sales_asof_report_eur)            as asof_report
+        from mart_returns_timing_monthly
+        group by month
+        order by month
+    """).fetchdf()
+    df["month"] = pd.to_datetime(df["month"])
+    return df
+
+
+def returns_kpis(con):
+    return con.execute("""
+        with totals as (
+          select sum(net_sales_eur) as net_pre from stg_sales
+        ),
+        ret as (
+          select sum(return_value_eur) as total_ret, count(*) as eventos from fct_return
+        ),
+        diffs as (
+          select max(abs(net_sales_asof_sale_eur - net_sales_asof_report_eur)) as max_diff
+          from (
+            select month,
+                   sum(net_sales_asof_sale_eur)   as net_sales_asof_sale_eur,
+                   sum(net_sales_asof_report_eur) as net_sales_asof_report_eur
+            from mart_returns_timing_monthly group by month
+          )
+        ),
+        online_ret as (
+          select sum(return_value_eur) as online_ret
+          from fct_return where channel = 'online'
+        )
+        select t.net_pre, r.total_ret, r.eventos, d.max_diff, o.online_ret
+        from totals t, ret r, diffs d, online_ret o
+    """).fetchone()
+
+
+def fig_returns_by_channel(con):
+    """Barra horizontal: tasa de devolución por canal, con € devueltos en hover.
+    Cuenta la historia 'Online concentra las devoluciones' en un solo vistazo."""
+    df = con.execute("""
+        with ret as (
+          select channel,
+                 sum(return_value_eur) as devuelto_eur,
+                 sum(units_returned)   as unidades_devueltas
+          from fct_return group by 1
+        ),
+        sold as (
+          select channel,
+                 sum(quantity_sold)    as unidades_vendidas,
+                 sum(net_sales_eur)    as net_eur
+          from stg_sales group by 1
+        )
+        select s.channel, r.devuelto_eur, r.unidades_devueltas,
+               s.unidades_vendidas, s.net_eur,
+               r.unidades_devueltas * 100.0 / s.unidades_vendidas as tasa
+        from sold s join ret r using (channel)
+    """).fetchdf().sort_values("tasa")
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=[LABELS[c] for c in df["channel"]],
+        x=df["tasa"],
+        orientation="h",
+        marker_color=[COLORS[c] for c in df["channel"]],
+        text=[f"{v:.1f}%" for v in df["tasa"]],
+        textposition="outside",
+        textfont=dict(color=INK, size=13),
+        customdata=df[["devuelto_eur", "unidades_devueltas"]].values,
+        hovertemplate=(
+            "<b>%{y}</b><br>Tasa devolución: %{x:.1f}%"
+            "<br>Devuelto: €%{customdata[0]:,.0f}"
+            "<br>Unidades: %{customdata[1]:,.0f}<extra></extra>"
+        ),
+    ))
+    fig.update_layout(
+        height=300, template="plotly_white", showlegend=False,
+        margin=dict(l=20, r=80, t=20, b=40),
+        font=dict(family=CHART_FONT, size=13, color=INK),
+        paper_bgcolor=CARD, plot_bgcolor=CARD,
+        xaxis=dict(ticksuffix="%", gridcolor=GRID, linecolor=BORDER, zeroline=False,
+                   tickfont=dict(size=12, color=MUTED), title=None),
+        yaxis=dict(linecolor=BORDER, tickfont=dict(size=13, color=INK), title=None),
+    )
+    return fig
+
+
+def fig_definitions(df):
+    """Bar chart de la divergencia mensual entre las dos métricas.
+    Sin texto extra: barra alta = la elección de métrica importa ese mes;
+    barra pequeña = las dos métricas coinciden."""
+    diff = df["asof_report"] - df["asof_sale"]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df["month"], y=diff,
+        marker_color=[PRIMARY if v >= 0 else ACCENT_STRONG for v in diff],
+        marker_line_width=0,
+        hovertemplate=(
+            "<b>%{x|%b %Y}</b><br>"
+            "Diferencia: €%{y:+,.0f}"
+            "<extra></extra>"
+        ),
+        showlegend=False,
+    ))
+    # Trazas vacías solo para que aparezca una leyenda explicativa
+    fig.add_trace(go.Bar(
+        x=[None], y=[None], marker_color=PRIMARY,
+        name="Financiera registra MÁS este mes", showlegend=True,
+    ))
+    fig.add_trace(go.Bar(
+        x=[None], y=[None], marker_color=ACCENT_STRONG,
+        name="Cohorte registra MÁS este mes", showlegend=True,
+    ))
+    fig.update_layout(**_layout(height=380, ytitle="Diferencia (€)"))
+    fig.update_yaxes(tickprefix="€", tickformat=",.0f",
+                     zeroline=True, zerolinecolor=PRIMARY, zerolinewidth=1)
+    fig.update_xaxes(tickformat="%b %Y")
+    return fig
+
+
+def section_q2(con):
+    df = load_returns_data(con)
+    net_pre, total_ret, eventos, max_diff, online_ret = returns_kpis(con)
+    ret_pct = total_ret / net_pre * 100
+    online_pct = online_ret / total_ret * 100
+
+    kpis = f"""
+    <div class="kpi-grid">
+      {kpi("Devuelto en 24 meses", fmt_eur(total_ret, short=True), f"{ret_pct:.0f}% del net pre-devolución")}
+      {kpi("Online absorbe", f"{online_pct:.0f}%", f"{fmt_eur(online_ret, short=True)} de los {fmt_eur(total_ret, short=True)} devueltos")}
+      {kpi("Líneas devueltas", f"{eventos:,}".replace(",", "."), "una por cada evento de devolución")}
+      {kpi("Pico de divergencia", fmt_eur(max_diff, short=True), "diferencia mensual entre las dos métricas")}
+    </div>"""
+
+    intro = """
+    <p><code>quantity_returned</code> se sobreescribe sobre la venta original — sin
+    nueva fila, sin fecha. <strong>Un dashboard hecho hoy mentirá el próximo
+    trimestre</strong>.</p>
+    """
+
+    returns_chart_intro = """
+    <h3>¿Dónde se concentran las devoluciones?</h3>
+    <p>Tasa de devolución por canal (% de unidades). Online no solo vende más:
+    devuelve mucho más por cada cosa vendida.</p>
+    """
+
+    schema = """
+    <h3>Schema propuesto</h3>
+    <div class="schema">
+      <div class="schema-step">
+        <div class="schema-step-label">Fuente</div>
+        <div class="schema-step-name">stg_sales</div>
+        <div class="schema-step-note">campo mutable</div>
+      </div>
+      <div class="schema-arrow">→</div>
+      <div class="schema-step">
+        <div class="schema-step-label">Snapshot SCD-2</div>
+        <div class="schema-step-name">snap_sale_order_line</div>
+        <div class="schema-step-note">capta cada cambio</div>
+      </div>
+      <div class="schema-arrow">→</div>
+      <div class="schema-step">
+        <div class="schema-step-label">Eventos</div>
+        <div class="schema-step-name">fct_return</div>
+        <div class="schema-step-note">sale_date + return_date</div>
+      </div>
+      <div class="schema-arrow">→</div>
+      <div class="schema-step">
+        <div class="schema-step-label">Mart</div>
+        <div class="schema-step-name">mart_returns_timing</div>
+        <div class="schema-step-note">las dos métricas</div>
+      </div>
+    </div>
+    """
+
+    definitions = """
+    <h3>Dos definiciones</h3>
+    <div class="defs-grid">
+      <div class="def-card">
+        <div class="def-card-h">As-of report date</div>
+        <div class="def-card-sub">la contabilidad</div>
+        <ul>
+          <li>Resta en el <strong>mes en que ocurre</strong> la devolución.</li>
+          <li>Mes cerrado <strong>no se vuelve a tocar</strong>.</li>
+          <li>Para CFO, board, cierre mensual.</li>
+        </ul>
+      </div>
+      <div class="def-card">
+        <div class="def-card-h">As-of date of sale</div>
+        <div class="def-card-sub">la cohorte</div>
+        <ul>
+          <li>Resta en el <strong>mes de la venta original</strong>.</li>
+          <li><strong>Restata el pasado</strong> al llegar nuevas devoluciones.</li>
+          <li>Para marketing, calidad de cohorte/campaña.</li>
+        </ul>
+      </div>
+    </div>
+    """
+
+    timing_chart_intro = """
+    <h3>¿Cuándo cambia el resultado según qué definición uses?</h3>
+    <p>Cerca de cero = las dos métricas coinciden. Lejos de cero = la elección
+    importa. Las <strong>dos barras altas del final</strong> son meses sin ventas
+    nuevas: solo la financiera ve esas devoluciones tardías.</p>
+    """
+
+    closing = """
+    <div class="note">
+      <p><strong>El mismo chart, dentro de 6 meses:</strong></p>
+      <ul>
+        <li><strong>Sobre la tabla cruda:</strong> Q1 era 1,0M€, ahora es 920k€.
+        Sin un commit. El pasado se reescribió solo.</li>
+        <li><strong>As-of report date:</strong> Q1 hoy = Q1 en 6 meses. Estable.</li>
+        <li><strong>As-of date of sale:</strong> Q1 también baja, pero es
+        <em>explícito</em>: la métrica dice "balance de cohorte a fecha de hoy".</li>
+      </ul>
+      <p><strong>Defiendo usar las dos.</strong> Report para finanzas; sale para
+      cohorte.</p>
+    </div>
+    """
+
+    return f"""
+    <section id="q2">
+      <span class="eyebrow">Pregunta 02</span>
+      <h2>Devoluciones tardías</h2>
+      <p class="lead">¿Cómo medimos net sales cuando una venta de enero puede devolverse en marzo?</p>
+      {kpis}
+      {intro}
+      {returns_chart_intro}
+      {chart_div(fig_returns_by_channel(con), "q2_by_channel")}
+      {schema}
+      {definitions}
+      {timing_chart_intro}
+      {chart_div(fig_definitions(df), "q2_definitions")}
+      {closing}
+    </section>
+    """
+
+
 JS = """
 <script>
 function q1Update() {
@@ -355,6 +612,7 @@ CSS = f"""
                   font-family:Inter,sans-serif; }}
   header h1 {{ font-size:40px; margin:14px 0 6px; color:var(--primary); line-height:1.1; }}
   header p {{ color:var(--muted); margin:0; font-size:15px; }}
+  header .byline {{ margin-top:10px; font-size:13px; letter-spacing:.02em; color:var(--accent-strong); }}
 
   .eyebrow {{ display:inline-block; font-size:12px; font-weight:600; letter-spacing:.16em;
              text-transform:uppercase; color:var(--accent-strong); margin-top:40px; }}
@@ -408,6 +666,36 @@ CSS = f"""
   .note ul {{ margin:10px 0; padding-left:20px; }} .note li {{ margin:7px 0; }}
   section {{ margin-bottom:26px; }}
 
+  /* Inline code */
+  code {{ font-family:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+         font-size:14px; background:var(--bg); padding:1px 6px; border-radius:5px;
+         color:var(--primary-2); border:1px solid var(--border); }}
+
+  /* Schema diagram (horizontal flow) */
+  .schema {{ display:flex; align-items:stretch; gap:8px; margin:18px 0 8px;
+            flex-wrap:wrap; }}
+  .schema-step {{ flex:1 1 0; min-width:150px; background:var(--card); border:1px solid var(--border);
+                 border-radius:12px; padding:12px 14px; box-shadow:0 1px 3px rgba(74,43,51,.05); }}
+  .schema-step-label {{ font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+                       color:var(--accent-strong); }}
+  .schema-step-name {{ font-family:'JetBrains Mono', ui-monospace, monospace; font-size:13.5px;
+                      font-weight:600; color:var(--primary); margin-top:4px; word-break:break-all; }}
+  .schema-step-note {{ font-size:12.5px; color:var(--muted); margin-top:6px; }}
+  .schema-arrow {{ align-self:center; font-size:20px; color:var(--accent-strong); font-weight:300; }}
+
+  /* Two-column definitions */
+  .defs-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+               gap:16px; margin:18px 0 12px; }}
+  .def-card {{ background:var(--card); border:1px solid var(--border); border-top:4px solid var(--primary);
+              border-radius:12px; padding:18px 22px; box-shadow:0 1px 3px rgba(74,43,51,.05); }}
+  .def-card:nth-child(2) {{ border-top-color:var(--accent-strong); }}
+  .def-card-h {{ font-family:'Playfair Display',serif; font-size:21px; font-weight:600; color:var(--primary); }}
+  .def-card:nth-child(2) .def-card-h {{ color:var(--accent-strong); }}
+  .def-card-sub {{ font-size:12px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+                  color:var(--muted); margin-top:2px; }}
+  .def-card ul {{ margin:12px 0 0; padding-left:18px; }}
+  .def-card li {{ margin:6px 0; font-size:14.5px; }}
+
   @media (max-width:560px) {{
     body {{ padding:36px 16px 80px; }} header h1 {{ font-size:32px; }}
     .controls select {{ min-width:100%; }}
@@ -419,7 +707,7 @@ CSS = f"""
 
 def build():
     con = duckdb.connect(DB, read_only=True)
-    body = section_q1(con)
+    body = section_q1(con) + section_q2(con)
     con.close()
 
     html = f"""<!DOCTYPE html>
@@ -436,6 +724,7 @@ def build():
   <div class="brand">A L O H A S</div>
   <h1>Cómo se mide el negocio</h1>
   <p>Ventas por canal · devoluciones · margen de contribución</p>
+  <p class="byline">Reporte preparado por <strong>David Rosales Argüello</strong></p>
 </header>
 {body}
 {JS}
