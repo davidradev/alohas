@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: stg_products
+    description: "Catálogo limpio y renombrado. Grano: una fila por producto (product_id)."
+    columns:
+      - name: product_id
+        description: "Clave primaria (antes `sku`)."
+        data_tests:
+          - unique
+          - not_null
+
+  - name: stg_shipments
+    description: "Envíos limpios y renombrados. Grano: una fila por envío (shipment_id)."
+    columns:
+      - name: shipment_id
+        description: "Clave primaria del envío."
+        data_tests:
+          - unique
+          - not_null
+
+  - name: stg_sales
+    description: >
+      Líneas de venta limpias y renombradas. Grano: una fila por línea de pedido.
+      Contiene líneas huérfanas (FK sin match en producto/envío); se documentan
+      con los tests `relationships` de abajo y se filtran deliberadamente en los
+      marts que necesitan coste. quantity_returned es mutable.
+    columns:
+      - name: sale_line_id
+        description: "Clave sustituta estable de la línea (hash de campos inmutables). PK lógica para el snapshot."
+        data_tests:
+          - unique
+          - not_null
+      - name: product_id
+        description: "FK a stg_products."
+        data_tests:
+          # Codifica el hallazgo de la auditoría: ~750 líneas sin producto (~203k€).
+          # Severidad WARN: es un problema de datos CONOCIDO que tratamos
+          # abajo (inner join donde hace falta coste), no queremos que bloquee el build.
+          - relationships:
+              arguments:
+                to: ref('stg_products')
+                field: product_id
+              config:
+                severity: warn
+      - name: shipment_id
+        description: "FK a stg_shipments."
+        data_tests:
+          # ~500 líneas sin envío. Mismo tratamiento que arriba.
+          - relationships:
+              arguments:
+                to: ref('stg_shipments')
+                field: shipment_id
+              config:
+                severity: warn

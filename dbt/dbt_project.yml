@@ -1,0 +1,28 @@
+name: 'alohas_project'
+version: '1.0.0'
+config-version: 2
+
+# Enlace al perfil de conexión en profiles.yml
+profile: 'alohas_profile'
+
+# Directorios del proyecto
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Configuración de materialización de modelos
+models:
+  alohas_project:
+    staging:
+      materialized: view
+    intermediate:
+      materialized: view
+    marts:
+      materialized: table

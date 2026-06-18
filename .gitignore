@@ -1,0 +1,28 @@
+# --- Entornos Python ---
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# --- Artefactos de dbt ---
+# Se regeneran con `dbt build`; no deben versionarse.
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml
+.user.yml
+
+# --- Base de datos DuckDB (artefacto de build) ---
+# Reproducible con: dbt build --project-dir dbt --profiles-dir dbt
+alohas.db
+*.db.wal
+*.duckdb
+
+# --- Config local de herramientas ---
+.claude/
+
+# --- Sistema operativo ---
+.DS_Store
+Thumbs.db

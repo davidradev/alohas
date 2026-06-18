@@ -1,0 +1,60 @@
+version: 2
+
+sources:
+  - name: production
+    description: >
+      Tablas crudas del caso ALOHAS. En prod (BigQuery) viven en
+      `alohas-recruiting-study-case.production`. En dev (DuckDB) se leen
+      directamente desde los CSV en `data/` vía `external_location`, de modo
+      que una misma definición de source funciona en los dos targets.
+    database: alohas-recruiting-study-case   # usado por el adapter de BigQuery
+    schema: production
+    meta:
+      external_location: "data/{name}.csv"   # usado por dbt-duckdb en dev
+
+    tables:
+      - name: dim_product
+        description: "Catálogo de productos. Grano: una fila por SKU."
+        columns:
+          - name: sku
+            description: "Clave primaria del catálogo. Formato SKU-XXXXX."
+            data_tests:
+              - unique
+              - not_null
+          - name: base_price
+            description: "Precio de catálogo (EUR)."
+          - name: cost
+            description: "Coste unitario del producto (EUR)."
+
+      - name: fct_shipment
+        description: "Envíos. Grano: una fila por envío (shipment_id)."
+        columns:
+          - name: shipment_id
+            description: "Clave primaria del envío. Formato SHP-XXXXXXX."
+            data_tests:
+              - unique
+              - not_null
+          - name: shipping_method
+            description: "Método de envío."
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ['standard', 'express', 'next_day', 'economy', 'pickup']
+
+      - name: fct_sale_order_line
+        description: >
+          Líneas de venta. Granularidad: una fila por línea de pedido.
+          OJO: quantity_returned es MUTABLE — se actualiza in-place cuando
+          llega la devolución (30-90 días después). Ver tests singulares y
+          el modelado de la pregunta 2.
+        columns:
+          - name: sku
+            description: "FK a dim_product. Hay líneas huérfanas (ver auditoría)."
+          - name: shipment_id
+            description: "FK a fct_shipment. Hay líneas huérfanas (ver auditoría)."
+          - name: channel
+            description: "Canal de venta."
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ['online', 'retail', 'wholesale', 'marketplace']

@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: mart_channel_sales_monthly
+    description: >
+      Ventas por canal y mes. Grano: una fila por (sales_month, channel).
+      Métrica norte: venta_neta_real_eur (neta de impuestos y prorrateada por
+      devoluciones). NOTA: hoy usa inner join y excluye huérfanos — para el
+      reporte de canal eso sesga ~270k€ de ventas que sí tienen canal; revisar
+      en el Bloque C.
+    columns:
+      - name: sales_month
+        data_tests: [not_null]
+      - name: channel
+        data_tests: [not_null]
+
+  - name: mart_sales_and_returns_cohort
+    description: >
+      Devoluciones por cohorte de mes de venta. Grano: una fila por
+      (cohorte_mes_venta, channel). Sirve para ilustrar la maduración de las
+      devoluciones (métrica as-of date of sale).
+    columns:
+      - name: cohorte_mes_venta
+        data_tests: [not_null]
+
+  - name: fct_return
+    description: >
+      Eventos de devolución. Grano: una fila por línea de venta con devoluciones
+      (sale_line_id). Lleva sale_date y return_date_est, lo que permite atribuir
+      la devolución al mes de venta o al mes en que ocurre. Se construye desde el
+      snapshot, no desde la tabla cruda.
+    columns:
+      - name: sale_line_id
+        data_tests:
+          - unique
+          - not_null
+      - name: units_returned
+        description: "Unidades devueltas (siempre > 0 en esta tabla)."
+
+  - name: mart_returns_timing_monthly
+    description: >
+      Pregunta 2: net sales bajo las dos definiciones (as-of sale vs as-of
+      report) por mes y canal. Grano: una fila por (month, channel).
+    columns:
+      - name: month
+        data_tests: [not_null]
+      - name: channel
+        data_tests: [not_null]
+
+  - name: mart_contribution_margin
+    description: >
+      Margen de contribución por canal y categoría. Grano: una fila por
+      (channel, product_category). Resta a la venta neta real el coste de
+      producto neto, el envío prorrateado y un coste estimado de retorno.
+    columns:
+      - name: channel
+        data_tests: [not_null]
+      - name: product_category
+        data_tests: [not_null]

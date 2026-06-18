@@ -1,0 +1,15 @@
+alohas_profile:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: alohas.db
+      threads: 4
+    prod:
+      type: bigquery
+      method: oauth
+      project: alohas-recruiting-study-case
+      dataset: dbt_davidra1999
+      location: US
+      threads: 4
+      timeout_seconds: 300
