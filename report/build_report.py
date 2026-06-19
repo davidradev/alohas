@@ -254,26 +254,22 @@ def section_q1(con):
 
     prose_mix = f"""
     <p>Online ({fmt_eur(n['online']['total_eur'], short=True)}) pesa más que los
-    otros tres canales juntos ({fmt_eur(n['_rest_total_eur'], short=True)}).
-    Reparto estable: el crecimiento no viene de un cambio de mix.</p>
+    otros tres canales juntos ({fmt_eur(n['_rest_total_eur'], short=True)}). Reparto
+    estable.</p>
     """
 
     prose_growth = """
-    <p>Los cuatro canales crecen en una banda estrecha. Online lidera marginalmente,
-    pero la diferencia es pequeña: <strong>motor de crecimiento ancho</strong>, sin
-    un único punto de dependencia.</p>
+    <p>Banda estrecha de crecimiento entre los cuatro canales. <strong>Motor
+    ancho</strong>, sin un único punto de dependencia.</p>
     """
 
     prose_lens = """
     <div class="note">
       <p><strong>Dos lecturas, según cuándo se cuenta una devolución:</strong></p>
       <ul>
-        <li><strong>CEO (financiera):</strong> la devolución se registra el día que
-        ocurre. Un mes cerrado no se vuelve a tocar.</li>
-        <li><strong>Head of Wholesale (cohorte):</strong> la devolución se descuenta
-        del mes de la venta original. Mide la calidad de cada campaña.</li>
+        <li><strong>CEO (financiera):</strong> la devolución se registra el día que ocurre.</li>
+        <li><strong>Head of Wholesale (cohorte):</strong> la devolución se descuenta del mes de la venta original.</li>
       </ul>
-      <p>En Wholesale las dos vistas coinciden; en Online es donde más se separan.</p>
     </div>
     """
 
@@ -361,25 +357,23 @@ def section_audit(con):
     findings = f"""
     <h3>Hallazgos</h3>
     <ul class="audit-list">
-      <li><strong>{op_n} líneas sin producto en catálogo</strong> (~{fmt_eur(op_eur, short=True)})
-      y <strong>{os_n} sin envío</strong>. La mayoría en Online. <em>Las conservo</em> en Sección 01
-      (canal/fecha/importe basta) y <em>las excluyo</em> en Sección 03 (sin coste no hay margen
-      que calcular).</li>
-      <li><strong>Consistencia financiera perfecta</strong>: net = gross − taxes, wholesale sin
-      impuestos, gross = precio × qty. Cero errores.</li>
-      <li><strong>Sin negativos ni devoluciones &gt; ventas.</strong></li>
-      <li><strong>Precios atípicos validados</strong>: los outliers (400–550€) son artículos
-      premium reales, no errores de escala.</li>
+      <li><strong>{op_n} líneas sin producto</strong> (~{fmt_eur(op_eur, short=True)}) y
+      <strong>{os_n} sin envío</strong>, mayormente en Online. <em>Las conservo en Sec 01,
+      las excluyo en Sec 03</em> (sin coste no hay margen).</li>
+      <li><strong>Consistencia financiera</strong>: net, taxes y gross cuadran al céntimo;
+      wholesale sin impuestos.</li>
+      <li><strong>Sin negativos ni devoluciones &gt; ventas</strong>.</li>
+      <li><strong>Outliers de precio validados</strong>: artículos premium reales (400–550€),
+      no error de escala.</li>
     </ul>
     """
 
     gap = """
     <div class="note">
-      <p><strong>Un gap de modelado, no de datos:</strong> el negocio envía a 8 países
-      (ES, FR, DE, US, IT, UK, PT, MX) pero <strong>ninguna columna registra la moneda original
-      ni el tipo de cambio</strong>. Todo llega pre-convertido a EUR. En producción, el grano
-      de venta debería llevar <code>currency_code</code> + <code>fx_rate_at_txn</code> — hoy no
-      podemos auditar el cambio aplicado ni separar pérdida cambiaria del margen real.</p>
+      <p><strong>Gap de modelado, no de datos:</strong> 8 países (ES, FR, DE, US, IT, UK, PT,
+      MX) y <strong>cero columnas de moneda</strong> — todo viene pre-convertido a EUR. En
+      producción haría falta <code>currency_code</code> + <code>fx_rate_at_txn</code> para
+      auditar el cambio y separar pérdida cambiaria del margen.</p>
     </div>
     """
 
@@ -563,8 +557,7 @@ def section_q2(con):
 
     returns_chart_intro = """
     <h3>¿Dónde se concentran las devoluciones?</h3>
-    <p>Tasa de devolución por canal (% de unidades). Online no solo vende más:
-    devuelve mucho más por cada cosa vendida.</p>
+    <p>Online no solo vende más: devuelve mucho más por cada cosa vendida.</p>
     """
 
     schema = """
@@ -622,9 +615,7 @@ def section_q2(con):
 
     timing_chart_intro = """
     <h3>¿Cuándo cambia el resultado según qué definición uses?</h3>
-    <p>Cerca de cero = las dos métricas coinciden. Lejos de cero = la elección
-    importa. Las <strong>dos barras altas del final</strong> son meses sin ventas
-    nuevas: solo la financiera ve esas devoluciones tardías.</p>
+    <p>Cerca de cero = las métricas coinciden. Lejos = la elección importa.</p>
     """
 
     closing = """
@@ -1028,6 +1019,14 @@ CSS = f"""
   .note ul {{ margin:10px 0; padding-left:20px; }} .note li {{ margin:7px 0; }}
   section {{ margin-bottom:26px; }}
 
+  /* Divisor entre secciones top-level (no aplica a la primera) */
+  section:not(:first-of-type) {{
+    margin-top:80px;
+    padding-top:56px;
+    border-top:3px solid var(--primary);
+  }}
+  section:not(:first-of-type) .eyebrow {{ margin-top:0; }}
+
   /* Inline code */
   code {{ font-family:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
          font-size:14px; background:var(--bg); padding:1px 6px; border-radius:5px;
@@ -1095,10 +1094,72 @@ CSS = f"""
                    background:var(--card); border-radius:0 0 8px 8px; }}
   .decision-body p {{ margin:8px 0; }}
 
-  @media (max-width:560px) {{
-    body {{ padding:36px 16px 80px; }} header h1 {{ font-size:32px; }}
+  /* ============================================================
+     RESPONSIVE — tablets en portrait y móviles
+     ============================================================ */
+  @media (max-width:720px) {{
+    body {{ padding:36px 16px 80px; font-size:15.5px; line-height:1.6; }}
+    header {{ padding-bottom:16px; }}
+    header h1 {{ font-size:28px; }}
+    header p {{ font-size:14px; }}
+    header .byline {{ font-size:12.5px; }}
+
+    h2 {{ font-size:24px; }}
+    h3 {{ font-size:19px; margin-top:32px; }}
+    p.lead {{ font-size:16.5px; }}
+    p {{ margin:12px 0; }}
+
+    /* Divisor entre secciones — menos agresivo en móvil */
+    section:not(:first-of-type) {{ margin-top:50px; padding-top:32px; border-top-width:2px; }}
+
+    /* KPIs */
+    .kpi-grid {{ gap:10px; margin:20px 0 24px; }}
+    .kpi {{ padding:14px 16px; }}
+    .kpi-label {{ font-size:10.5px; }}
+    .kpi-value {{ font-size:28px; }}
+    .kpi-sub {{ font-size:12.5px; }}
+
+    /* Controls (selects de Q1) */
+    .controls {{ gap:14px; padding:14px 16px; }}
     .controls select {{ min-width:100%; }}
+
+    /* Chart cards — menos padding para dar espacio al chart */
+    .card.chart-card {{ padding:8px 6px 4px; margin:12px 0 6px; }}
+
+    /* Schema diagram — apila vertical y oculta flechas horizontales */
+    .schema {{ flex-direction:column; gap:8px; }}
+    .schema-step {{ min-width:0; width:100%; padding:10px 14px; }}
+    .schema-arrow {{ display:none; }}
+
+    /* Two-column cards: garantiza que colapsen a 1 col cuando hace falta */
+    .defs-grid {{ gap:12px; }}
+    .def-card {{ padding:14px 16px; }}
+    .def-card-h {{ font-size:18px; }}
+    .def-card li {{ font-size:13.5px; }}
+
+    .rankings-grid {{ gap:12px; }}
+    .rank-col {{ padding:12px 14px; }}
+    .rank-col li {{ font-size:14px; }}
+
+    /* Notes y disclosures */
+    .note {{ padding:4px 16px; margin:24px 0; font-size:14.5px; }}
+    .decision-body {{ padding:6px 14px 10px; font-size:13.5px; }}
+
+    /* Listas de auditoría */
+    .audit-list li {{ font-size:14.5px; }}
   }}
+
+  /* Móvil pequeño (iPhone SE y similares) */
+  @media (max-width:400px) {{
+    body {{ padding:28px 14px 70px; font-size:15px; }}
+    header h1 {{ font-size:24px; }}
+    h2 {{ font-size:21px; }}
+    h3 {{ font-size:17px; }}
+    p.lead {{ font-size:15.5px; }}
+    .kpi-value {{ font-size:24px; }}
+    .eyebrow {{ font-size:11px; letter-spacing:.14em; }}
+  }}
+
   @media (prefers-reduced-motion: reduce) {{ * {{ transition:none !important; animation:none !important; }} }}
 </style>
 """
