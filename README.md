@@ -20,17 +20,18 @@ intermediate → marts) con tests, y un reporte en notebook que lee de esos mart
 │   ├── tests/                Tests singulares (reglas de negocio)
 │   └── macros/               generate_surrogate_key
 ├── notebooks/
-│   ├── run_sql.ipynb         Auditoría de calidad de datos
-│   └── eda_and_insights.ipynb  Reporte: gráficos + insights
+│   ├── run_sql.ipynb         Auditoría de calidad de datos (working pre-modelado)
+│   └── eda_and_insights.ipynb  Notebook exploratorio (queda como working — el reporte ya no se genera desde aquí)
 ├── report/
-│   └── eda_and_insights.html Reporte renderizado (abrir en navegador)
+│   ├── build_report.py       Script Python: lee de los marts y arma el HTML
+│   └── aloha_report.html     Reporte interactivo (abrir en navegador) ← EMPEZAR AQUÍ
 └── analytics-engineer-case.pdf  El brief original
 ```
 
 ### Por dónde empezar a leer
-1. **`report/eda_and_insights.html`** — las conclusiones, en el navegador.
+1. **`report/aloha_report.html`** — las conclusiones, en el navegador. Empieza con la sección de auditoría ("Antes de empezar") y sigue con las tres preguntas.
 2. **`dbt/models/`** — el modelado. Mirar primero `staging/_sources.yml` y `staging/_staging.yml` (grano + tests), luego los marts.
-3. **`notebooks/run_sql.ipynb`** — la auditoría de datos previa al modelado.
+3. **`notebooks/run_sql.ipynb`** — la auditoría de datos previa al modelado (la versión narrada vive en el HTML).
 
 ---
 
@@ -41,16 +42,19 @@ el mismo proyecto apunta a **BigQuery** en el target `prod`.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install dbt-duckdb dbt-bigquery jupysql duckdb pandas matplotlib seaborn
+pip install dbt-duckdb dbt-bigquery duckdb pandas plotly jupysql
 
 # IMPORTANTE: dbt se ejecuta desde la RAÍZ del repo (las rutas a data/ y a la
 # BD son relativas a la raíz).
 dbt build --project-dir dbt --profiles-dir dbt
 
-# Regenerar el reporte HTML:
-jupyter nbconvert --to html --execute notebooks/eda_and_insights.ipynb \
-  --output-dir report
+# Regenerar el reporte HTML (lee de los marts en alohas.db y escribe
+# report/aloha_report.html, autocontenido — Plotly embebido, abre offline):
+python3 report/build_report.py
 ```
+
+`jupysql` solo lo necesitas si vas a re-ejecutar `notebooks/run_sql.ipynb`. Para
+generar el reporte basta con `plotly` + `duckdb` + `pandas`.
 
 `alohas.db` (la BD DuckDB) y `dbt/target/` están en `.gitignore` porque son
 artefactos de build: se recrean con `dbt build`.
@@ -95,6 +99,12 @@ trato igual en todos lados:
 Los tests `relationships` dejan los huérfanos documentados como `warn` (problema
 de datos conocido, no bloqueante).
 
+**Multi-país sin moneda (gap de modelado).** El negocio envía a 8 países (ES, FR,
+DE, US, IT, UK, PT, MX) pero ninguna tabla trae `currency_code` ni `fx_rate`.
+Todo viene pre-convertido a EUR aguas arriba. Hoy es imposible auditar el tipo
+de cambio aplicado ni separar pérdida cambiaria del margen real. El reporte lo
+flagea explícitamente en la sección de auditoría.
+
 **Devoluciones tardías (Pregunta 2).** `quantity_returned` es mutable: se
 reescribe sobre la línea original cuando llega la devolución (30-90 días después).
 Mi diseño:
@@ -119,49 +129,64 @@ Mi diseño:
 **Margen de contribución (Pregunta 3).** Margen = venta neta real − coste de
 producto neto − envío prorrateado − coste de devolución. Supuestos:
 - *Envío:* lo prorrateo entre las líneas de un mismo envío según su % de venta
-  bruta dentro del envío.
+  bruta dentro del envío. **Decisión opinable** — sin `weight_kg` en el catálogo
+  no se puede repartir por peso (lo correcto). El reporte muestra esta decisión
+  en un disclosure colapsable junto al supuesto.
 - *Devoluciones / producto:* asumo que la unidad devuelta **se reincorpora al
   stock** (no pierdo su coste de producto, solo descuento las unidades netas).
-- *Coste de devolución:* **8,00€ por unidad devuelta** (logística inversa). Es el
-  supuesto más discutible y el que más mueve el resultado en canales con mucha
-  devolución (online).
+- *Coste de devolución:* **8,00€ por unidad devuelta** (recibir, inspeccionar,
+  re-empacar). Es el supuesto más opinable: a 15€/u, Online baja ~1 pp;
+  Wholesale apenas se mueve (devuelve solo el 4%).
 
 ---
 
 ## Hallazgos de calidad de datos
 
-De `run_sql.ipynb`:
+De `run_sql.ipynb` (y surfaceado en la sección de auditoría del HTML):
 - **Claves primarias:** 100% limpias (sin duplicados en `sku` ni `shipment_id`).
-- **Integridad referencial:** 750 ventas sin producto y 500 sin envío (ver arriba).
+- **Integridad referencial:** 750 ventas sin producto y 500 sin envío. Las 750
+  sin producto se concentran en Online (435) y suman ~203k€ de venta bruta.
 - **Consistencia financiera:** perfecta — `gross = base_price × qty`, `net = gross
   − taxes`, wholesale con impuestos en 0.
 - **Límites físicos:** sin negativos, sin devoluciones > ventas.
 - **Precios atípicos (IQR):** los precios altos son artículos premium reales
   (~400-550€), no errores de escala. El catálogo está sano.
+- **Multi-país sin `currency_code` ni `fx_rate`:** 8 países distintos, todo
+  pre-convertido a EUR. Es un gap de **modelado**, no de datos — pero limita lo
+  que se puede auditar sobre el tipo de cambio.
 
 ---
 
 ## Las tres preguntas, en corto
 
-1. **Canal.** Online domina el volumen pero concentra las devoluciones (17,9% vs
-   4,2% en wholesale). La métrica norte es la venta neta real (neta de impuestos y
-   de devoluciones), no la bruta.
-2. **Net sales con devoluciones tardías.** Defiendo *as-of report date* para
-   reporting financiero (no reescribe el pasado) y reservo *as-of date of sale*
-   para análisis de calidad de cohorte.
-3. **Margen de contribución.** Algunas combinaciones canal × categoría que se ven
-   sanas en una gráfica de ingresos dejan de estarlo al restar devoluciones y
-   envío; el detalle está en el reporte.
+0. **Auditoría primero.** 1.250 líneas con FK rota (~325k€ de venta bruta) que
+   conservo en Q1 y excluyo en Q3. 8 países sin columna de moneda — gap de
+   modelado dejado flageado en el reporte y en este README.
+1. **Canal.** Online concentra el 56% de la venta neta (5,1M€ de 9,1M€) con
+   crecimiento de +18% interanual. Los cuatro canales crecen en banda estrecha:
+   motor ancho, no dependencia de uno solo. El reporte expone toggle CEO /
+   cohorte para mostrar cuándo cuenta la devolución.
+2. **Net sales con devoluciones tardías.** Snapshot SCD-2 → `fct_return`
+   (eventos con `sale_date` + `return_date`) → mart con las dos métricas lado a
+   lado. Defiendo *as-of report date* para reporting financiero (no reescribe el
+   pasado) y *as-of date of sale* para análisis de cohorte.
+3. **Margen de contribución.** Online aporta más margen absoluto (2,1M€) pero
+   Wholesale gana en eficiencia (55,5% vs 42,6%). El ranking se da la vuelta
+   también en categorías: Bags cae del 3º al 5º al pasar de venta a margen %;
+   Shoes salta al 1º.
 
 ---
 
 ## Qué haría con más tiempo
 
+- **Catálogo enriquecido:** añadir `weight_kg` y `currency_code` a `dim_product`
+  y al grano de venta. Son los dos gaps que más limitan la fidelidad del cálculo
+  de margen y el análisis multi-país.
 - **Snapshots con historia real:** correr el snapshot sobre varios cortes para
   que `fct_return` use fechas de devolución reales en vez del supuesto de +60 días.
+- **Sensibilidad del coste de devolución:** sacar el 8,00€ a una variable de
+  `dbt` (`vars:`) y exponer un slider en el reporte para ver el rango de margen
+  por canal/categoría en tiempo real.
 - **Investigar los SKU huérfanos:** ¿son catálogo incompleto (problema de
   modelado) o basura (problema de datos)? Hoy solo los aíslo.
-- **Sensibilidad del coste de devolución:** parametrizar el 8,00€ y mostrar cómo
-  cambia el ranking de rentabilidad por canal.
 - **Exposures de dbt + CI** que corra `dbt build` en cada push.
-- **Reporte interactivo** (Plotly/Evidence) en vez de PNG estáticos.

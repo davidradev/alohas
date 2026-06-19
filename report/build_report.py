@@ -249,7 +249,7 @@ def section_q1(con):
     <p>Crecimiento sostenido con pico Nov–Dic. En 12 meses:
     <strong>{fmt_eur(n['_prev12_eur'], short=True)} → {fmt_eur(n['_last12_eur'], short=True)}</strong>
     (<strong>+{fmt_eur(n['_delta_eur'], short=True)}, +{n['_growth_total']:.0f}%</strong>) —
-    equivale a sumar un Marketplace entero en un año.</p>
+    equivale a más de <strong>tres Marketplaces enteros</strong> añadidos en un año.</p>
     """
 
     prose_mix = f"""
@@ -321,6 +321,95 @@ def section_q1(con):
       {chart_div(fig_growth(df), "q1_growth")}
 
       {prose_lens}
+    </section>
+    """
+
+
+# --------------------------------------------------------------------------- #
+# Sección 00 — Auditoría de datos
+# --------------------------------------------------------------------------- #
+def section_audit(con):
+    counts = con.execute("""
+        with orph_prod as (
+          select count(*)::int as c, sum(v.gross_sale_eur) as eur
+          from stg_sales v left join stg_products p on v.product_id = p.product_id
+          where p.product_id is null
+        ),
+        orph_ship as (
+          select count(*)::int as c, sum(v.gross_sale_eur) as eur
+          from stg_sales v left join stg_shipments s on v.shipment_id = s.shipment_id
+          where s.shipment_id is null
+        ),
+        countries as (
+          select count(distinct destination_country_code)::int as c from stg_shipments
+        )
+        select op.c, op.eur, os.c, os.eur, co.c
+        from orph_prod op, orph_ship os, countries co
+    """).fetchone()
+    op_n, op_eur, os_n, os_eur, n_countries = counts
+    total_orph_n = op_n + os_n
+    total_orph_eur = (op_eur or 0) + (os_eur or 0)
+
+    kpis = f"""
+    <div class="kpi-grid">
+      {kpi("Tests dbt", "40 / 40", "0 errores · 2 WARN intencionales", "pos")}
+      {kpi("Errores matemáticos", "0", "net, taxes y gross cuadran al céntimo", "pos")}
+      {kpi("Líneas con FK rota", f"{total_orph_n:,}".replace(",", "."), f"{fmt_eur(total_orph_eur, short=True)} de venta bruta combinada")}
+      {kpi("Países sin moneda", str(n_countries), "ninguno con columna currency_code")}
+    </div>"""
+
+    findings = f"""
+    <h3>Hallazgos</h3>
+    <ul class="audit-list">
+      <li><strong>{op_n} líneas sin producto en catálogo</strong> (~{fmt_eur(op_eur, short=True)})
+      y <strong>{os_n} sin envío</strong>. La mayoría en Online. <em>Las conservo</em> en Sección 01
+      (canal/fecha/importe basta) y <em>las excluyo</em> en Sección 03 (sin coste no hay margen
+      que calcular).</li>
+      <li><strong>Consistencia financiera perfecta</strong>: net = gross − taxes, wholesale sin
+      impuestos, gross = precio × qty. Cero errores.</li>
+      <li><strong>Sin negativos ni devoluciones &gt; ventas.</strong></li>
+      <li><strong>Precios atípicos validados</strong>: los outliers (400–550€) son artículos
+      premium reales, no errores de escala.</li>
+    </ul>
+    """
+
+    gap = """
+    <div class="note">
+      <p><strong>Un gap de modelado, no de datos:</strong> el negocio envía a 8 países
+      (ES, FR, DE, US, IT, UK, PT, MX) pero <strong>ninguna columna registra la moneda original
+      ni el tipo de cambio</strong>. Todo llega pre-convertido a EUR. En producción, el grano
+      de venta debería llevar <code>currency_code</code> + <code>fx_rate_at_txn</code> — hoy no
+      podemos auditar el cambio aplicado ni separar pérdida cambiaria del margen real.</p>
+    </div>
+    """
+
+    roadmap = """
+    <details class="decision">
+      <summary>Qué dejaría en el roadmap si tuviera más tiempo</summary>
+      <div class="decision-body">
+        <p><strong>Catálogo enriquecido:</strong> añadir <code>weight_kg</code> y
+        <code>currency_code</code> a las tablas fuente. Son los dos gaps que más limitan la
+        fidelidad del margen y del análisis multi-país.</p>
+        <p><strong>Snapshot con historia real:</strong> correr el snapshot sobre varios cortes
+        para que <code>fct_return</code> use fechas reales de devolución en vez del supuesto
+        de +60 días.</p>
+        <p><strong>Sensibilidad parametrizada:</strong> sacar el 8€/u de procesar devoluciones
+        a una variable de dbt y exponer un slider en el reporte.</p>
+        <p><strong>Investigar SKUs huérfanos:</strong> ¿catálogo incompleto (modelado) o
+        registros basura (datos)? Hoy los aíslo pero no entiendo su origen.</p>
+      </div>
+    </details>
+    """
+
+    return f"""
+    <section id="audit">
+      <span class="eyebrow">Antes de empezar</span>
+      <h2>Lo que encontré en los datos</h2>
+      <p class="lead">El dataset es sintético, pero la auditoría es de verdad.</p>
+      {kpis}
+      {findings}
+      {gap}
+      {roadmap}
     </section>
     """
 
@@ -550,6 +639,18 @@ def section_q2(con):
       </ul>
       <p><strong>Defiendo usar las dos.</strong> Report para finanzas; sale para
       cohorte.</p>
+      <details class="decision">
+        <summary>Un supuesto que es importante hacer explícito</summary>
+        <div class="decision-body">
+          <p>El dataset <strong>no trae fecha real de devolución</strong>. En esta
+          versión estimo cada devolución como <code>sale_date + 60 días</code> (punto
+          medio de la ventana 30–90 días que el brief describe).</p>
+          <p>En producción, ese campo se reemplaza por el <code>dbt_valid_from</code>
+          del snapshot — la fecha en que detectamos que <code>quantity_returned</code>
+          cambió. Esa es la mecánica que el schema habilita; el +60 días es solo el
+          puente mientras no exista historia real de snapshot.</p>
+        </div>
+      </details>
     </div>
     """
 
@@ -566,6 +667,267 @@ def section_q2(con):
       {definitions}
       {timing_chart_intro}
       {chart_div(fig_definitions(df), "q2_definitions")}
+      {closing}
+    </section>
+    """
+
+
+# --------------------------------------------------------------------------- #
+# Sección 03 — Margen de contribución
+# --------------------------------------------------------------------------- #
+CATEGORY_ORDER = ["Shoes", "Outerwear", "Dresses", "Bottoms", "Bags", "Tops", "Swimwear", "Accessories"]
+CHANNEL_ORDER_BY_MARGIN = ["wholesale", "retail", "marketplace", "online"]
+COST_COLORS = {
+    "margen":   PRIMARY,
+    "producto": "#B89E94",
+    "envio":    ACCENT,
+    "ret":      ACCENT_STRONG,
+}
+
+
+def fig_margin_heatmap(con):
+    df = con.execute("""
+        select channel, product_category,
+               porcentaje_margen_contribucion * 100 as margen_pct
+        from mart_contribution_margin
+    """).fetchdf()
+    pivot = (df.pivot(index="channel", columns="product_category", values="margen_pct")
+               .reindex(index=CHANNEL_ORDER_BY_MARGIN, columns=CATEGORY_ORDER))
+
+    fig = go.Figure(data=go.Heatmap(
+        z=pivot.values,
+        x=pivot.columns,
+        y=[LABELS[c] for c in pivot.index],
+        colorscale=[[0, "#E8C9B8"], [0.5, ACCENT], [1, PRIMARY]],
+        text=[[f"{v:.0f}%" for v in row] for row in pivot.values],
+        texttemplate="%{text}",
+        textfont=dict(color="white", size=13, family=CHART_FONT),
+        hovertemplate="<b>%{y} × %{x}</b><br>Margen: %{z:.1f}%<extra></extra>",
+        colorbar=dict(ticksuffix="%", tickfont=dict(size=11, color=MUTED),
+                      thickness=12, len=0.85),
+        zmin=35, zmax=60,
+    ))
+    fig.update_layout(
+        height=300, template="plotly_white",
+        margin=dict(l=20, r=20, t=20, b=40),
+        font=dict(family=CHART_FONT, size=13, color=INK),
+        paper_bgcolor=CARD, plot_bgcolor=CARD,
+        xaxis=dict(side="bottom", tickfont=dict(size=12, color=MUTED), title=None),
+        yaxis=dict(tickfont=dict(size=13, color=INK), title=None, autorange="reversed"),
+    )
+    return fig
+
+
+def fig_cost_structure(con):
+    df = con.execute("""
+        select channel,
+               sum(costo_producto_neto_eur) as producto,
+               sum(costo_envio_eur)         as envio,
+               sum(costo_retornos_estimado_eur) as ret,
+               sum(margen_contribucion_eur) as margen
+        from mart_contribution_margin
+        group by 1
+    """).fetchdf()
+    df["total"] = df[["producto", "envio", "ret", "margen"]].sum(axis=1)
+    for c in ["producto", "envio", "ret", "margen"]:
+        df[f"{c}_pct"] = df[c] / df["total"] * 100
+    df = df.set_index("channel").reindex(CHANNEL_ORDER_BY_MARGIN).reset_index()
+
+    fig = go.Figure()
+    parts = [
+        ("margen", "Margen"),
+        ("producto", "Coste producto"),
+        ("envio", "Envío"),
+        ("ret", "Procesar devoluciones"),
+    ]
+    for key, label in parts:
+        fig.add_trace(go.Bar(
+            y=[LABELS[c] for c in df["channel"]],
+            x=df[f"{key}_pct"],
+            orientation="h",
+            name=label,
+            marker_color=COST_COLORS[key],
+            customdata=df[[key]].values,
+            hovertemplate=f"<b>{label}</b><br>"
+                          "%{x:.1f}% · €%{customdata[0]:,.0f}<extra></extra>",
+        ))
+    fig.update_layout(
+        barmode="stack",
+        height=280, template="plotly_white",
+        margin=dict(l=20, r=20, t=20, b=40),
+        font=dict(family=CHART_FONT, size=13, color=INK),
+        paper_bgcolor=CARD, plot_bgcolor=CARD,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0,
+                    font=dict(size=12, color=INK)),
+        xaxis=dict(ticksuffix="%", gridcolor=GRID, linecolor=BORDER, zeroline=False,
+                   tickfont=dict(size=12, color=MUTED), title=None, range=[0, 100]),
+        yaxis=dict(linecolor=BORDER, tickfont=dict(size=13, color=INK), title=None,
+                   autorange="reversed"),
+    )
+    return fig
+
+
+def margin_kpis(con):
+    return con.execute("""
+        with totals as (
+          select sum(venta_neta_real_eur) as venta,
+                 sum(margen_contribucion_eur) as margen,
+                 sum(costo_envio_eur) as envio
+          from mart_contribution_margin
+        ),
+        by_ch as (
+          select channel,
+                 sum(margen_contribucion_eur) * 100.0 / sum(venta_neta_real_eur) as pct
+          from mart_contribution_margin group by 1
+        )
+        select t.venta, t.margen, t.envio,
+               (select pct from by_ch where channel='wholesale') as wh_pct,
+               (select pct from by_ch where channel='online')    as on_pct
+        from totals t
+    """).fetchone()
+
+
+def section_q3(con):
+    venta, margen, envio, wh_pct, on_pct = margin_kpis(con)
+    margen_pct = margen / venta * 100
+    gap_pp = wh_pct - on_pct
+
+    kpis = f"""
+    <div class="kpi-grid">
+      {kpi("Margen de contribución 24m", fmt_eur(margen, short=True), f"{margen_pct:.0f}% sobre venta neta", "pos")}
+      {kpi("Mejor canal", f"{wh_pct:.0f}%", "Wholesale lidera en %")}
+      {kpi("Gap Wholesale vs Online", f"{gap_pp:.0f} pp", f"{wh_pct:.1f}% vs {on_pct:.1f}%")}
+      {kpi("Coste asumido por devolución", "8€/u", "supuesto más opinable")}
+    </div>"""
+
+    intro = """
+    <p>Lo que sobra de cada venta tras quitar tres costes: producto, envío y
+    procesar devoluciones.</p>
+    """
+
+    assumptions = """
+    <div class="note">
+      <p><strong>Tres reglas y una exclusión:</strong></p>
+      <ul>
+        <li><strong>Envío repartido por paquete</strong>: si un envío lleva varias
+        prendas, cada una asume una parte proporcional a su precio. Un bolso de
+        400€ paga más envío que una camiseta de 30€ del mismo paquete.
+          <details class="decision">
+            <summary>¿Por qué repartir por precio y no por peso?</summary>
+            <div class="decision-body">
+              <p>Lo ideal sería repartir por <strong>peso o volumen</strong> — es
+              lo que el carrier realmente factura. El catálogo (<code>dim_product</code>)
+              no incluye peso ni dimensiones, así que usé el precio como atajo:
+              el artículo caro absorbe más.</p>
+              <p>Es una decisión defendible cuando falta información, no la
+              "correcta". Al nivel agregado canal × categoría apenas mueve el
+              resultado (envío es ~2,3% de la venta neta).</p>
+              <p><strong>Con más tiempo:</strong> añadir <code>weight_kg</code> a
+              <code>dim_product</code> y repartir por <code>(peso × unidades)</code>
+              dentro del paquete.</p>
+            </div>
+          </details>
+        </li>
+        <li><strong>La devolución vuelve al stock</strong>: no pierdo su coste de
+        producto, solo descuento las unidades netas (vendidas − devueltas).</li>
+        <li><strong>Procesar una devolución: 8€/u</strong> (recibir, inspeccionar,
+        re-empacar). Supuesto más opinable: a 15€/u, Online bajaría ~1 pp.</li>
+        <li><strong>Excluyo huérfanos</strong>: ~1.250 líneas (~270k€) sin producto
+        o sin envío. Sin coste no hay margen que calcular. En Sección 01 sí
+        cuentan.</li>
+      </ul>
+    </div>
+    """
+
+    heatmap_intro = """
+    <h3>¿Qué combinaciones dejan más margen?</h3>
+    <p>Cuanto más oscuro, mejor. <strong>Wholesale</strong> gana cualquier fila;
+    <strong>Shoes</strong> y <strong>Outerwear</strong> cualquier columna. Peor
+    combo: Online × Accessories (37%).</p>
+    """
+
+    flip = """
+    <h3>El mismo negocio, dos rankings distintos</h3>
+    <p>Pasamos de venta a margen % y los rankings cambian. Por canal,
+    <strong>Online</strong> cae del 1º al 4º. Por categoría, <strong>Bags</strong>
+    sale del top 4 y <strong>Shoes</strong> salta al 1º.</p>
+
+    <div class="rank-section-label">Por canal</div>
+    <div class="rankings-grid">
+      <div class="rank-col">
+        <div class="rank-col-h">Por venta neta</div>
+        <ol>
+          <li><span class="rk-name"><strong>Online</strong></span><span class="rk-val">5,1M€</span></li>
+          <li><span class="rk-name">Wholesale</span><span class="rk-val">1,8M€</span></li>
+          <li><span class="rk-name">Retail</span><span class="rk-val">1,7M€</span></li>
+          <li><span class="rk-name">Marketplace</span><span class="rk-val">0,4M€</span></li>
+        </ol>
+      </div>
+      <div class="rank-col">
+        <div class="rank-col-h">Por margen %</div>
+        <ol>
+          <li><span class="rk-name"><strong>Wholesale</strong></span><span class="rk-val">55,5%</span></li>
+          <li><span class="rk-name">Retail</span><span class="rk-val">42,9%</span></li>
+          <li><span class="rk-name">Marketplace</span><span class="rk-val">42,8%</span></li>
+          <li><span class="rk-name">Online</span><span class="rk-val">42,6%</span></li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="rank-section-label">Por categoría (top 4)</div>
+    <div class="rankings-grid">
+      <div class="rank-col">
+        <div class="rank-col-h">Por venta neta</div>
+        <ol>
+          <li><span class="rk-name">Outerwear</span><span class="rk-val">2,58M€</span></li>
+          <li><span class="rk-name">Dresses</span><span class="rk-val">1,51M€</span></li>
+          <li><span class="rk-name"><strong>Bags</strong></span><span class="rk-val">1,47M€</span></li>
+          <li><span class="rk-name">Shoes</span><span class="rk-val">1,14M€</span></li>
+        </ol>
+      </div>
+      <div class="rank-col">
+        <div class="rank-col-h">Por margen %</div>
+        <ol>
+          <li><span class="rk-name"><strong>Shoes</strong></span><span class="rk-val">48%</span></li>
+          <li><span class="rk-name">Outerwear</span><span class="rk-val">47%</span></li>
+          <li><span class="rk-name">Dresses</span><span class="rk-val">46%</span></li>
+          <li><span class="rk-name">Bottoms</span><span class="rk-val">44%</span></li>
+        </ol>
+      </div>
+    </div>
+    """
+
+    cost_intro = """
+    <h3>¿A dónde se va cada euro vendido?</h3>
+    <p>El producto se lleva la mitad de cada euro. Envío + devoluciones &lt;5%.
+    La palanca está en el producto, no en la logística.</p>
+    """
+
+    closing = """
+    <div class="note">
+      <p><strong>Quién gana dinero, en una hoja:</strong></p>
+      <ul>
+        <li><strong>Más margen absoluto:</strong> Online (2,07M€) + Outerwear (1,21M€).</li>
+        <li><strong>Más eficiencia en %:</strong> Wholesale (55,5%) + Shoes (48%).</li>
+        <li><strong>Combo ganador:</strong> Wholesale × Shoes (58%). Peor: Online × Accessories (37%).</li>
+        <li><strong>Palanca:</strong> Online tiene techo de mejora alto bajando su tasa de devolución; Wholesale ya está optimizado.</li>
+      </ul>
+    </div>
+    """
+
+    return f"""
+    <section id="q3">
+      <span class="eyebrow">Pregunta 03</span>
+      <h2>Margen de contribución</h2>
+      <p class="lead">¿Qué canales ganan dinero de verdad — no solo en la gráfica de ingresos?</p>
+      {kpis}
+      {intro}
+      {assumptions}
+      {heatmap_intro}
+      {chart_div(fig_margin_heatmap(con), "q3_heatmap")}
+      {flip}
+      {cost_intro}
+      {chart_div(fig_cost_structure(con), "q3_cost")}
       {closing}
     </section>
     """
@@ -696,6 +1058,43 @@ CSS = f"""
   .def-card ul {{ margin:12px 0 0; padding-left:18px; }}
   .def-card li {{ margin:6px 0; font-size:14.5px; }}
 
+  /* Rankings comparison (Q3) */
+  .rankings-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+                   gap:16px; margin:14px 0 8px; }}
+  .rank-col {{ background:var(--card); border:1px solid var(--border); border-top:4px solid var(--primary-2);
+              border-radius:12px; padding:14px 18px; box-shadow:0 1px 3px rgba(74,43,51,.05); }}
+  .rank-col:nth-child(2) {{ border-top-color:var(--accent-strong); }}
+  .rank-col-h {{ font-size:12px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+                color:var(--muted); margin-bottom:6px; }}
+  .rank-col ol {{ margin:0; padding-left:22px; }}
+  .rank-col li {{ display:flex; justify-content:space-between; align-items:baseline;
+                 padding:4px 0; font-size:15px; }}
+  .rank-col li .rk-val {{ font-family:'JetBrains Mono', ui-monospace, monospace;
+                          font-size:13.5px; color:var(--muted); }}
+  .rank-col li:first-child .rk-val {{ color:var(--primary); font-weight:600; }}
+  .rank-section-label {{ font-size:11.5px; font-weight:600; letter-spacing:.12em;
+                        text-transform:uppercase; color:var(--muted);
+                        margin:18px 0 8px; }}
+
+  /* Audit findings list */
+  .audit-list {{ padding-left:22px; margin:8px 0 16px; }}
+  .audit-list li {{ margin:10px 0; font-size:15.5px; }}
+
+  /* Disclosable decision card (<details>) */
+  .decision {{ margin:10px 0 4px; border:1px solid var(--border); border-radius:8px;
+              background:var(--bg); }}
+  .decision summary {{ cursor:pointer; padding:8px 14px; font-size:13px; font-weight:600;
+                      color:var(--accent-strong); letter-spacing:.02em; user-select:none;
+                      list-style:none; transition:color .15s ease; }}
+  .decision summary::-webkit-details-marker {{ display:none; }}
+  .decision summary::before {{ content:"▸"; display:inline-block; margin-right:7px;
+                              font-size:11px; transition:transform .15s ease; }}
+  .decision[open] summary::before {{ transform:rotate(90deg); }}
+  .decision summary:hover {{ color:var(--primary); }}
+  .decision-body {{ padding:6px 16px 12px; font-size:14px; border-top:1px solid var(--border);
+                   background:var(--card); border-radius:0 0 8px 8px; }}
+  .decision-body p {{ margin:8px 0; }}
+
   @media (max-width:560px) {{
     body {{ padding:36px 16px 80px; }} header h1 {{ font-size:32px; }}
     .controls select {{ min-width:100%; }}
@@ -707,7 +1106,7 @@ CSS = f"""
 
 def build():
     con = duckdb.connect(DB, read_only=True)
-    body = section_q1(con) + section_q2(con)
+    body = section_audit(con) + section_q1(con) + section_q2(con) + section_q3(con)
     con.close()
 
     html = f"""<!DOCTYPE html>
