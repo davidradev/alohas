@@ -37,8 +37,9 @@ GRID = "#EDE4DB"
 
 CHANNELS = ["online", "wholesale", "retail", "marketplace"]
 LABELS = {"online": "Online", "wholesale": "Wholesale", "retail": "Retail", "marketplace": "Marketplace"}
-# Paleta cálida/editorial, distinguible y con contraste >=3:1 sobre blanco
-COLORS = {"online": "#603B43", "wholesale": "#C2705A", "retail": "#4E6E5D", "marketplace": "#B5832B"}
+# Paleta de canales: 4 familias cromáticas distintas (no solo cálidos) para
+# maximizar la distinción visual entre líneas/barras/segmentos.
+COLORS = {"online": "#3D2129", "wholesale": "#D9603F", "retail": "#2F6048", "marketplace": "#C9962F"}
 PERSP = {"ceo": "ceo", "wh": "wh"}
 GRAINS = {"M": "Mensual", "Q": "Trimestral", "Y": "Anual"}
 DEFAULT_P, DEFAULT_G = "ceo", "Q"
@@ -83,9 +84,18 @@ def fig_trend(df):
             agg = aggregate(df, g, valcol)
             for ch in CHANNELS:
                 s = agg[agg["channel"] == ch]
+                # En modo cohorte (wh), Wholesale destaca: la atribución por
+                # cohorte mueve más su línea que la del resto.
+                if p == "wh" and ch == "wholesale":
+                    line_w, marker_sz, opac = 4.5, 8, 1.0
+                elif p == "wh":
+                    line_w, marker_sz, opac = 2, 4, 0.55
+                else:
+                    line_w, marker_sz, opac = 2.5, 5, 1.0
                 fig.add_trace(go.Scatter(
                     x=s["period"], y=s[valcol], name=LABELS[ch], mode="lines+markers",
-                    line=dict(color=COLORS[ch], width=2.5), marker=dict(size=5),
+                    line=dict(color=COLORS[ch], width=line_w),
+                    marker=dict(size=marker_sz), opacity=opac,
                     meta={"p": p, "g": g}, legendgroup=ch,
                     visible=(p == DEFAULT_P and g == DEFAULT_G),
                     hovertemplate=f"<b>{LABELS[ch]}</b><br>%{{x|%b %Y}}<br>€%{{y:,.0f}}<extra></extra>",
@@ -225,24 +235,29 @@ def section_q1(con):
     df = load_channel_data(con)
     n = narrative_numbers(df, con)
 
+    def channel_card(ch, name, tag):
+        d = n[ch]
+        growth_str = f"{'+' if d['growth'] >= 0 else ''}{d['growth']:.0f}%"
+        return f"""
+        <div class="channel-card" style="border-top-color:{COLORS[ch]}">
+          <div class="channel-name">{name}</div>
+          <div class="channel-value">{fmt_eur(d['total_eur'], short=True)}</div>
+          <div class="channel-share">{d['share']:.0f}% del total · {growth_str} YoY · {d['ret']:.0f}% devolución</div>
+          <div class="channel-tag">{tag}</div>
+        </div>"""
+
     kpis = f"""
-    <div class="kpi-grid">
-      {kpi("Venta neta (24 meses)", fmt_eur(n['_total_eur'], short=True), f"{fmt_eur(n['_last12_eur'], short=True)} en los últimos 12 meses")}
-      {kpi("Crecimiento interanual", f"+{n['_growth_total']:.0f}%", f"+{fmt_eur(n['_delta_eur'], short=True)} vs el año anterior", "pos")}
-      {kpi("Online", f"{fmt_eur(n['online']['total_eur'], short=True)}", f"{n['online']['share']:.0f}% del total — más que los otros tres canales juntos")}
-      {kpi("Devoluciones", f"{n['online']['ret']:.0f}% vs {n['wholesale']['ret']:.0f}%", "Online frente a Wholesale")}
+    <div class="channel-grid">
+      {channel_card('online', 'Online', 'Motor del negocio')}
+      {channel_card('wholesale', 'Wholesale', 'Eficiente, devuelve poco')}
+      {channel_card('retail', 'Retail', 'Similar a Wholesale en tamaño')}
+      {channel_card('marketplace', 'Marketplace', 'Residual pero estable')}
     </div>"""
 
     prose_intro = f"""
     <p>En 24 meses ALOHAS ha facturado <strong>{fmt_eur(n['_total_eur'], short=True)}</strong>
-    de venta neta. <strong>Online</strong> lidera con
-    <strong>{fmt_eur(n['online']['total_eur'], short=True)}</strong>
-    ({n['online']['share']:.0f}%); <strong>Wholesale</strong>
-    ({fmt_eur(n['wholesale']['total_eur'], short=True)}) y <strong>Retail</strong>
-    ({fmt_eur(n['retail']['total_eur'], short=True)}) rondan un quinto cada uno;
-    <strong>Marketplace</strong> queda residual ({fmt_eur(n['marketplace']['total_eur'], short=True)},
-    {n['marketplace']['share']:.0f}%). Toda la sección es venta neta — sin impuestos
-    ni devoluciones.</p>
+    de venta neta, <strong>+{n['_growth_total']:.0f}%</strong> interanual. Toda la
+    sección es venta neta — sin impuestos ni devoluciones.</p>
     """
 
     prose_trend = f"""
@@ -278,7 +293,7 @@ def section_q1(con):
         <label>Perspectiva
           <span class="select-wrap">
             <select id="q1_perspective" onchange="q1Update()">
-              <option value="ceo">CEO — visión financiera</option>
+              <option value="ceo">CEO/CFO — visión financiera</option>
               <option value="wh">Head of Wholesale — por cohorte</option>
             </select>
           </span>
@@ -356,24 +371,27 @@ def section_audit(con):
 
     findings = f"""
     <h3>Hallazgos</h3>
-    <ul class="audit-list">
-      <li><strong>{op_n} líneas sin producto</strong> (~{fmt_eur(op_eur, short=True)}) y
-      <strong>{os_n} sin envío</strong>, mayormente en Online. <em>Las conservo en Sec 01,
-      las excluyo en Sec 03</em> (sin coste no hay margen).</li>
-      <li><strong>Consistencia financiera</strong>: net, taxes y gross cuadran al céntimo;
-      wholesale sin impuestos.</li>
-      <li><strong>Sin negativos ni devoluciones &gt; ventas</strong>.</li>
-      <li><strong>Outliers de precio validados</strong>: artículos premium reales (400–550€),
-      no error de escala.</li>
-    </ul>
-    """
-
-    gap = """
-    <div class="note">
-      <p><strong>Gap de modelado, no de datos:</strong> 8 países (ES, FR, DE, US, IT, UK, PT,
-      MX) y <strong>cero columnas de moneda</strong> — todo viene pre-convertido a EUR. En
-      producción haría falta <code>currency_code</code> + <code>fx_rate_at_txn</code> para
-      auditar el cambio y separar pérdida cambiaria del margen.</p>
+    <div class="findings-grid">
+      <div class="findings-col pos">
+        <div class="findings-col-h">Lo que está bien</div>
+        <ul>
+          <li><strong>Consistencia financiera</strong>: net, taxes y gross cuadran al céntimo; wholesale sin impuestos.</li>
+          <li><strong>Sin negativos ni devoluciones &gt; ventas</strong>: los límites físicos se respetan.</li>
+          <li><strong>Outliers de precio validados</strong>: los artículos en 400–550€ son premium reales, no error de escala.</li>
+        </ul>
+      </div>
+      <div class="findings-col neg">
+        <div class="findings-col-h">Lo que hay que vigilar</div>
+        <ul>
+          <li><strong>{op_n} líneas sin producto</strong> (~{fmt_eur(op_eur, short=True)})
+          y <strong>{os_n} sin envío</strong>, mayormente en Online. <em>Las conservo
+          en Sec 01, las excluyo en Sec 03</em> (sin coste no hay margen).</li>
+          <li><strong>Multi-país sin moneda</strong>: 8 países (ES, FR, DE, US, IT, UK,
+          PT, MX) y ninguna columna <code>currency_code</code> ni <code>fx_rate</code>.
+          Todo viene pre-convertido a EUR — imposible auditar el cambio o separar
+          pérdida cambiaria del margen.</li>
+        </ul>
+      </div>
     </div>
     """
 
@@ -399,10 +417,8 @@ def section_audit(con):
     <section id="audit">
       <span class="eyebrow">Antes de empezar</span>
       <h2>Lo que encontré en los datos</h2>
-      <p class="lead">El dataset es sintético, pero la auditoría es de verdad.</p>
       {kpis}
       {findings}
-      {gap}
       {roadmap}
     </section>
     """
@@ -670,9 +686,9 @@ CATEGORY_ORDER = ["Shoes", "Outerwear", "Dresses", "Bottoms", "Bags", "Tops", "S
 CHANNEL_ORDER_BY_MARGIN = ["wholesale", "retail", "marketplace", "online"]
 COST_COLORS = {
     "margen":   PRIMARY,
-    "producto": "#B89E94",
-    "envio":    ACCENT,
-    "ret":      ACCENT_STRONG,
+    "producto": "#6B8E5A",
+    "envio":    "#D9603F",
+    "ret":      "#C9962F",
 }
 
 
@@ -793,7 +809,10 @@ def section_q3(con):
 
     intro = """
     <p>Lo que sobra de cada venta tras quitar tres costes: producto, envío y
-    procesar devoluciones.</p>
+    procesar devoluciones. <strong>Wholesale es el más eficiente</strong> en %
+    de margen, pero <strong>Online sigue siendo el motor</strong> del negocio
+    en valor absoluto: aporta el doble de margen bruto que Wholesale. Son
+    palancas distintas.</p>
     """
 
     assumptions = """
@@ -989,6 +1008,35 @@ CSS = f"""
   .kpi-value.pos {{ color:var(--accent-strong); }}
   .kpi-sub {{ font-size:13px; color:var(--muted); }}
 
+  /* Channel cards (Q1) — un card por canal con métricas + caracterización */
+  .channel-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+                  gap:14px; margin:26px 0 30px; }}
+  .channel-card {{ background:var(--card); border:1px solid var(--border);
+                  border-top:4px solid var(--primary); border-radius:14px;
+                  padding:16px 18px 14px; box-shadow:0 1px 3px rgba(74,43,51,.05); }}
+  .channel-name {{ font-family:'Playfair Display',serif; font-size:19px; font-weight:600;
+                  color:var(--primary); line-height:1; }}
+  .channel-value {{ font-family:'Playfair Display',serif; font-size:30px; font-weight:600;
+                   color:var(--primary); margin:8px 0 2px; line-height:1; }}
+  .channel-share {{ font-size:12.5px; color:var(--muted); font-weight:500; }}
+  .channel-tag {{ font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+                 color:var(--accent-strong); margin-top:10px; padding-top:8px;
+                 border-top:1px solid var(--border); }}
+
+  /* Findings split: positivos vs negativos (Sec 00) */
+  .findings-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+                   gap:16px; margin:14px 0 26px; }}
+  .findings-col {{ background:var(--card); border:1px solid var(--border); border-radius:12px;
+                  padding:14px 20px 8px; box-shadow:0 1px 3px rgba(74,43,51,.05); }}
+  .findings-col.pos {{ border-left:4px solid #4E7A57; }}
+  .findings-col.neg {{ border-left:4px solid var(--accent-strong); }}
+  .findings-col-h {{ font-family:'Playfair Display',serif; font-size:18px; font-weight:600;
+                    margin-bottom:6px; }}
+  .findings-col.pos .findings-col-h {{ color:#4E7A57; }}
+  .findings-col.neg .findings-col-h {{ color:var(--accent-strong); }}
+  .findings-col ul {{ margin:8px 0; padding-left:18px; }}
+  .findings-col li {{ margin:8px 0; font-size:14.5px; }}
+
   /* Controls */
   .controls {{ display:flex; gap:20px; flex-wrap:wrap; background:var(--card);
               border:1px solid var(--border); border-radius:14px; padding:16px 18px; margin:8px 0 6px;
@@ -1150,6 +1198,13 @@ CSS = f"""
 
     /* Listas de auditoría */
     .audit-list li {{ font-size:14.5px; }}
+
+    /* Channel + findings grids — colapsan vía auto-fit, solo ajustes finos */
+    .channel-grid, .findings-grid {{ gap:10px; }}
+    .channel-card {{ padding:14px 16px 12px; }}
+    .channel-value {{ font-size:26px; }}
+    .findings-col {{ padding:12px 16px 6px; }}
+    .findings-col li {{ font-size:13.5px; }}
   }}
 
   /* Móvil pequeño (iPhone SE y similares) */
