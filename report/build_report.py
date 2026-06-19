@@ -278,8 +278,8 @@ def section_q1(con):
         <label>Perspectiva
           <span class="select-wrap">
             <select id="q1_perspective" onchange="q1Update()">
-              <option value="ceo">CEO — visión financiera (devolución el día que ocurre)</option>
-              <option value="wh">Head of Wholesale — por cohorte (devolución el día de la compra)</option>
+              <option value="ceo">CEO — visión financiera</option>
+              <option value="wh">Head of Wholesale — por cohorte</option>
             </select>
           </span>
         </label>
@@ -994,15 +994,18 @@ CSS = f"""
               border:1px solid var(--border); border-radius:14px; padding:16px 18px; margin:8px 0 6px;
               box-shadow:0 1px 3px rgba(74,43,51,.05); }}
   .controls label {{ font-size:12px; font-weight:600; letter-spacing:.04em; color:var(--muted);
-                    text-transform:uppercase; display:flex; flex-direction:column; gap:7px; }}
-  .select-wrap {{ position:relative; display:inline-block; }}
+                    text-transform:uppercase; display:flex; flex-direction:column; gap:7px;
+                    min-width:0; flex:1 1 280px; }}
+  .select-wrap {{ position:relative; display:block; width:100%; min-width:0; }}
   .select-wrap::after {{ content:""; position:absolute; right:14px; top:50%; width:8px; height:8px;
                         border-right:2px solid var(--primary-2); border-bottom:2px solid var(--primary-2);
                         transform:translateY(-70%) rotate(45deg); pointer-events:none; }}
   .controls select {{ font-family:Inter,sans-serif; font-size:14px; font-weight:500; text-transform:none;
                      letter-spacing:0; padding:9px 38px 9px 13px; border:1.5px solid var(--border);
-                     border-radius:9px; background:var(--bg); color:var(--ink); min-width:290px;
+                     border-radius:9px; background:var(--bg); color:var(--ink);
+                     width:100%; max-width:100%; min-width:0;
                      cursor:pointer; appearance:none; -webkit-appearance:none;
+                     text-overflow:ellipsis;
                      transition:border-color .18s ease, box-shadow .18s ease; }}
   .controls select:hover {{ border-color:var(--accent); }}
   .controls select:focus-visible {{ outline:none; border-color:var(--accent-strong);
@@ -1121,7 +1124,7 @@ CSS = f"""
 
     /* Controls (selects de Q1) */
     .controls {{ gap:14px; padding:14px 16px; }}
-    .controls select {{ min-width:100%; }}
+    .controls label {{ flex:1 1 100%; }}
 
     /* Chart cards — menos padding para dar espacio al chart */
     .card.chart-card {{ padding:8px 6px 4px; margin:12px 0 6px; }}
