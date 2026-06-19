@@ -1,7 +1,7 @@
 {#
   Prorratea el coste de cada envío entre las líneas de venta que lo componen,
   proporcionalmente a la venta bruta de cada línea dentro del envío.
-  Grano: una fila por línea de venta CON envío existente.
+  Granularidad: una fila por línea de venta CON envío existente.
 
   Aislar esto del mart de margen lo mantiene legible (capas, no una query gigante)
   y deja el prorrateo testeable y reutilizable. El inner join con envíos filtra

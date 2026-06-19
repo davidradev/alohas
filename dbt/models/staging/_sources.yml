@@ -14,7 +14,7 @@ sources:
 
     tables:
       - name: dim_product
-        description: "Catálogo de productos. Grano: una fila por SKU."
+        description: "Catálogo de productos. Granularidad: una fila por SKU."
         columns:
           - name: sku
             description: "Clave primaria del catálogo. Formato SKU-XXXXX."
@@ -27,7 +27,7 @@ sources:
             description: "Coste unitario del producto (EUR)."
 
       - name: fct_shipment
-        description: "Envíos. Grano: una fila por envío (shipment_id)."
+        description: "Envíos. Granularidad: una fila por envío (shipment_id)."
         columns:
           - name: shipment_id
             description: "Clave primaria del envío. Formato SHP-XXXXXXX."

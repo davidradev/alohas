@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: stg_products
-    description: "Catálogo limpio y renombrado. Grano: una fila por producto (product_id)."
+    description: "Catálogo limpio y renombrado. Granularidad: una fila por producto (product_id)."
     columns:
       - name: product_id
         description: "Clave primaria (antes `sku`)."
@@ -11,7 +11,7 @@ models:
           - not_null
 
   - name: stg_shipments
-    description: "Envíos limpios y renombrados. Grano: una fila por envío (shipment_id)."
+    description: "Envíos limpios y renombrados. Granularidad: una fila por envío (shipment_id)."
     columns:
       - name: shipment_id
         description: "Clave primaria del envío."
@@ -21,7 +21,7 @@ models:
 
   - name: stg_sales
     description: >
-      Líneas de venta limpias y renombradas. Grano: una fila por línea de pedido.
+      Líneas de venta limpias y renombradas. Granularidad: una fila por línea de pedido.
       Contiene líneas huérfanas (FK sin match en producto/envío); se documentan
       con los tests `relationships` de abajo y se filtran deliberadamente en los
       marts que necesitan coste. quantity_returned es mutable.

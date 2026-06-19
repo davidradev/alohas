@@ -4,7 +4,7 @@ models:
   - name: int_shipping_allocation
     description: >
       Coste de envío prorrateado a nivel de línea de venta, por participación en
-      la venta bruta del envío. Grano: una fila por línea con envío existente.
+      la venta bruta del envío. Granularidad: una fila por línea con envío existente.
     columns:
       - name: sale_line_id
         data_tests:

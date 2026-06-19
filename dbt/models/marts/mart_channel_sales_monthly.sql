@@ -1,5 +1,5 @@
 {#
-  Ventas por canal y mes. Grano: una fila por (sales_month, channel).
+  Ventas por canal y mes. Granularidad: una fila por (sales_month, channel).
 
   DECISIÓN DE MODELADO: aquí NO filtramos las líneas huérfanas. Para medir el
   desempeño de un canal solo necesitamos canal + fecha + importe, y las ~1.250

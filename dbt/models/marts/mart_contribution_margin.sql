@@ -1,5 +1,5 @@
 {#
-  Margen de contribución por canal y categoría. Grano: una fila por
+  Margen de contribución por canal y categoría. Granularidad: una fila por
   (channel, product_category).
 
   Recibe el coste de envío ya prorrateado desde int_shipping_allocation y solo se

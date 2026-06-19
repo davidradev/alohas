@@ -1,5 +1,5 @@
 {#
-  Tabla de eventos de devolución. Grano: una fila por línea de venta con
+  Tabla de eventos de devolución. Granularidad: una fila por línea de venta con
   devoluciones. Convierte el quantity_returned mutable (atado a la línea de
   venta) en un EVENTO con su propia fecha, que es lo que permite calcular net
   sales bajo cualquiera de las dos definiciones (as-of sale / as-of report).
